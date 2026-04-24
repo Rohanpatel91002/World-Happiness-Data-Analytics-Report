@@ -1,0 +1,190 @@
+---
+title: "Final_project"
+author: "Rohan Patel"
+date: "2026-04-01"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+```
+
+
+```{r}
+data <- read.csv("happiness_final.csv")
+```
+
+# Task - 2
+
+Research question - Do countries with a higher Life Expectancy score (above the global average) have a significantly higher Happiness Score than countries with a lower life expectancy?
+
+## 2.2 - Cleaning and Preparing Data
+
+Data was combined, cleaned and normalized for hypothesis testing.
+Please see "happiness_data_Cleaning.rmd" file.
+
+## 2.3 - Hypothesis Construction and Testing Hypotheses
+
+Null Hypothesis: Countries  with a higher Life Expectancy score do not have higher happiness 
+
+Alternative: Countries with a higher Life Expectancy score have higher happiness scores.
+
+```{r}
+global_health_avg <- mean(data$LifeExp_raw, na.rm = TRUE)
+
+df_task2 <- data %>%
+  filter(!is.na(LifeExp_raw), !is.na(Score)) %>% 
+  mutate(Health_Group = ifelse(LifeExp_raw > global_health_avg, 
+                               "High Health", "Low Health")) %>%
+  select(Score, Health_Group)
+```
+
+
+```{r}
+
+library(car)
+
+shapiro_high <- shapiro.test(df_task2$Score[df_task2$Health_Group == "High Health"])
+shapiro_low <- shapiro.test(df_task2$Score[df_task2$Health_Group == "Low Health"])
+
+shapiro_high
+shapiro_low
+
+
+levene_test <- leveneTest(Score ~ as.factor(Health_Group), data = df_task2)
+levene_test
+```
+
+From the above result of the normality test, since the p-value is too low meaning the data is not normal. We also failed the Levene's Test for Homogeneity of Variance as the p-value was 0.008352 which is less than 0.05.
+
+So since the data is not normal and failed equal variance assumptions, we should use non-parametric (Wilcoxon test) test. The Wilcoxon test does not require a normal distribution.
+
+```{r}
+ggplot(df_task2, aes(sample = Score)) +
+  stat_qq(alpha = 0.6) + 
+  stat_qq_line(color = "red", size = 1) + 
+  facet_wrap(~Health_Group) + 
+  theme_minimal() +
+  labs(title = "Normal Q-Q Plot: Happiness Scores by Health Sector",
+       x = "Theoretical Quantiles",
+       y = "Sample Quantiles")
+```
+
+
+
+```{r}
+wilcox_result <- wilcox.test(Score ~ Health_Group, 
+                             data = df_task2, 
+                             alternative = "greater")
+
+wilcox_result
+```
+ from the above result, we found p-value - 2.2e-16 - which is too low. Since it is smaller than 0.05, We reject the null hypothesis.
+ 
+ Now we can say that,  Countries with a higher Life Expectancy score have higher happiness scores.
+
+
+```{r}
+ggplot(df_task2, aes(x = Health_Group, y = Score, fill = Health_Group)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Impact of Healthy Life Expectancy on Happiness",
+       x = "Healthy Life Expectancy Group",
+       y = "Happiness Score") +
+  scale_fill_manual(values = c("High Health" = "lightgreen", "Low Health" = "lightblue"))
+```
+
+
+# Task - 3
+
+## 3.1 - Advanced Research Question
+
+To what extent do GDP per capita and Social Support independently predict Happiness scores?
+
+## 3.2 - Model Selection
+
+The model we will be using to test this hypothesis is a multiple linear regression model. We know GDP per capita and social support to be correlated variables, therefore we must choose a model that isolates their effects and tests for independent influence.
+
+## 3.3 - Model Conducting and Evaluation
+
+First we clean the data of all NA and invalid values concerning the variables in question. We can also generate a visual to see the data points at a cursory glance.
+
+```{r}
+happiness_final <- read.csv("happiness_final.csv")
+
+happiness_clean <- happiness_final %>%
+  filter(!is.na(Score), !is.na(GDP_per_capita), !is.na(Social_support), GDP_per_capita > 0)
+
+library(ggplot2)
+library(patchwork)
+
+p1 <- ggplot(happiness_clean, aes(x = GDP_per_capita, y = Score)) +
+  geom_point(alpha = 0.3, color = "midnightblue") + 
+  stat_smooth(method = "lm", formula = y ~ poly(x), color = "darkred") +
+  labs(title = "GDP vs Happiness", x = "GDP per Capita", y = "Score") +
+  theme_minimal()
+
+p2 <- ggplot(happiness_clean, aes(x = Social_support, y = Score)) +
+  geom_point(alpha = 0.3, color = "darkorchid4") + 
+  stat_smooth(method = "lm", formula = y ~ poly(x), color = "coral") +
+  labs(title = "Social Support vs Happiness", x = "Social Support", y = "Score") +
+  theme_minimal()
+
+p1 + p2
+```
+
+We can start by viewing a correlation matrix, this will give us a quick look at the correlation between our variables.
+
+```{r}
+library(corrplot)
+
+cor_matrix <- happiness_clean %>%
+  select(Score, GDP_per_capita, Social_support) %>%
+  as.matrix() %>%
+  cor()
+
+corrplot(
+  cor_matrix,
+  method = "color",
+  addCoef.col = "black")
+```
+
+We can see that GDP and Social support have a correlation of 0.58 which is considered a moderate level of correlation. This is not so high to where we would say that running a multiple linear regression model would yield invalid results. We also take note of the fact that GDP seems to have a higher correlation to happiness score than social support.
+
+We can now run the model and check our assumptions. We add as.factor(Year) to satisfy the independent observations assumption and keep yearly data seperated.
+
+```{r}
+model <- lm(Score ~ GDP_per_capita + Social_support + as.factor(Year), data = happiness_clean)
+
+summary(model)
+plot(model)
+```
+We see very low p-values in the summary output for both GDP per capita and Social support. This indicates that both GDP per capita and Social support independently have a statistically significant relationship to Happiness Score. Looking at our estimated values, we see a value of 1.52 for GDP_per_capita and 1.54 for Social support, indicating the effect from both variables are quite similar in magnitude. We also see that 2017, 2018 and 2019 had significantly lower Happiness Scores worldwide.
+
+We also note a R-squared value of 0.72, indicating the model explains approximately 72% of the variance in Happiness Score. In social sciences, this R-squared value is considered quite high. This output tells us that the model is quite robust, and is a useful predictor of Happiness Score, given GDP per capita and Social Support.
+
+The Q-Q Residuals plot shows us a clear pattern of normality.
+
+The Residuals vs. Fitted plot for the linear model shows a relatively random distribution of residuals around the zero line. The slight U-shape in the red line indicates that we may be better served with a polynomial model. To look into this, we will conduct another test with polynomial regression.
+
+```{r}
+model_poly <- lm(Score ~ GDP_per_capita + I(GDP_per_capita^2) + 
+                   Social_support + I(Social_support^2) + 
+                   as.factor(Year), 
+                 data = happiness_clean)
+
+summary(model_poly)
+plot(model_poly)
+```
+In the polynomial model, we see that the polynomial expressions for GDP per capita and Social support both have a very low p-value, indicating the polynomial is a more accurate predictor of Happiness Score. We see a much flatter line in the Residuals vs fitted plot as well. Our R-squared value has increased slightly from 0.72 to 0.74, indicating a better match to the underlying data.
+
+We took a quick look at the possibility of multicollinearity in the correlation matrix, however we should check Variance Inflation Factors (VIF) since we have so many variables in the dataset that could have combinatory effects.
+
+```{r}
+vif(model)
+```
+Since the value outputs of the VIF test are well below the common threshold of 5, we can say that we do not have a multicollinearity issue.
+
+
+

@@ -1,0 +1,184 @@
+---
+title: "Happiness Data Cleaning"
+output: html_document
+date: "2026-04-05"
+---
+```{r}
+library(tidyverse)
+library(dplyr)
+```
+
+# Data Ingestion
+
+First we pull data from the CSVs. Since the CSVs are separated by year, we add a column to each and write in the correct year to each row.
+
+```{r}
+data_2015 <- read_csv("Data/2015.csv") %>% mutate(Year = 2015)
+data_2016 <- read_csv("Data/2016.csv") %>% mutate(Year = 2016)
+data_2017 <- read_csv("Data/2017.csv") %>% mutate(Year = 2017)
+data_2018 <- read_csv("Data/2018.csv") %>% mutate(Year = 2018)
+data_2019 <- read_csv("Data/2019.csv") %>% mutate(Year = 2019)
+
+gdp_data <- read_csv("gdp_data.csv")
+life_data <- read_csv("life_expectancy_data.csv")
+```
+# Data Preparation and Normalization
+
+To adequately prepare the data, we must first view the structures to see if the datasets are all similarly structured and typed.
+
+```{r}
+str(data_2015)
+str(data_2016)
+str(data_2017)
+str(data_2018)
+str(data_2019)
+```
+We see many significant differences between the different structures and types. 2017-2019 data are all missing the Region column. Since we may need this information, we fill in this missing data using 2015-2016 regions as a lookup table.
+
+```{r}
+region_lookup <- bind_rows(data_2015, data_2016) %>%
+  select(Country, Region) %>%
+  drop_na(Region) %>%
+  distinct(Country, .keep_all = TRUE)
+
+data_2018 <- data_2018 %>% rename(Country = 'Country or region')
+data_2019 <- data_2019 %>% rename(Country = 'Country or region')
+
+data_2017 <- data_2017 %>% left_join(region_lookup, by = "Country")
+data_2018 <- data_2018 %>% left_join(region_lookup, by = "Country")
+data_2019 <- data_2019 %>% left_join(region_lookup, by = "Country")
+```
+
+One column is typed differently in 2018, so we implement the change.
+
+```{r}
+data_2018 <- data_2018 %>% mutate(`Perceptions of corruption` = as.numeric(`Perceptions of corruption`))
+```
+
+# Combining and Normalizing
+
+Now that we have no missing and differently typed columns, we can combine the data and aggregate data from columns that do not share the same name but contain the same measure with coalesce().
+
+```{r}
+combined <- bind_rows(data_2015, data_2016, data_2017, data_2018, data_2019)
+
+happiness_final <- combined %>%
+  mutate(
+    Rank = coalesce(`Happiness Rank`, `Happiness.Rank`, `Overall rank`),
+    Score = coalesce(Score, `Happiness Score`, `Happiness.Score`),
+    GDP_per_capita = coalesce(`Economy (GDP per Capita)`, `Economy..GDP.per.Capita.`, `GDP per capita`),
+    Social_support = coalesce(Family, `Social support`),
+    Healthy_life_expectancy = coalesce(`Health (Life Expectancy)`, `Health..Life.Expectancy.`, `Healthy life expectancy`),
+    Freedom = coalesce(Freedom, `Freedom to make life choices`),
+    Perceptions_of_corruption = coalesce(`Trust (Government Corruption)`, `Trust..Government.Corruption.`, `Perceptions of corruption`)
+  ) %>%
+  select(
+    Country, Region, Year, Rank, Score, 
+    GDP_per_capita, Social_support, Healthy_life_expectancy, 
+    Freedom, Perceptions_of_corruption, Generosity
+  )
+```
+
+Now we can view the final structure to see if we have the structure we are looking for.
+
+```{r}
+str(happiness_final)
+```
+# Further normalization
+
+To check for inconsistent naming in countries, we check the list of distinct countries and look for slight variations of the same country name.
+
+```{r}
+country_list <- happiness_final %>%
+  distinct(Country) %>%
+  pull(Country,) %>%
+  sort()
+
+print(country_list)
+```
+We can now implement the fixes to the slight variations observed.
+
+```{r}
+happiness_final <- happiness_final %>%
+  mutate(Country = case_match(Country,
+    "Trinidad and Tobago" ~ "Trinidad & Tobago",
+    "Northern Cyprus" ~ "North Cyprus",
+    "Taiwan Province of China" ~ "Taiwan",
+    "Hong Kong S.A.R., China" ~ "Hong Kong",
+    "North Macedonia" ~ "Macedonia",
+    .default = Country
+  ))
+```
+
+We can now check for missing Regions, i.e. regions that were not found in the lookup table from above.
+
+```{r}
+happiness_final %>% 
+  filter(is.na(Region)) %>% 
+  distinct(Country)
+```
+
+```{r}
+distinct <- happiness_final %>% distinct(Region)
+print(distinct)
+```
+
+```{r}
+x <- happiness_final %>% filter(is.na(Region))
+print(x)
+```
+
+```{r}
+happiness_final <- happiness_final %>%
+  mutate(Region = case_when(
+    Country == "Taiwan" ~ "Eastern Asia",
+    Country == "Hong Kong" ~ "Eastern Asia",
+    Country == "Trinidad & Tobago" ~ "Latin America and Caribbean",
+    Country == "North Cyprus" ~ "Western Europe",
+    Country == "Macedonia" ~ "Central and Eastern Europe",
+    Country == "Gambia" ~ "Sub-Saharan Africa",
+    TRUE ~ Region
+  ))
+```
+
+```{r}
+gdp_long <- gdp_data %>%
+  pivot_longer(cols = -`Country Name`, names_to = "Year", values_to = "GDP_raw") %>%
+  rename(Country = `Country Name`) %>%
+  mutate(Year = as.numeric(Year))
+
+life_long <- life_data %>%
+  pivot_longer(cols = -`Country Name`, names_to = "Year", values_to = "LifeExp_raw") %>%
+  rename(Country = `Country Name`) %>%
+  mutate(Year = as.numeric(Year))
+
+head(gdp_long)
+head(life_long)
+
+```
+```{r}
+data_merged <- happiness_final %>%
+  left_join(gdp_long, by = c("Country" = "Country", "Year" = "Year")) %>%
+  left_join(life_long,  by = c("Country" = "Country", "Year" = "Year"))
+
+sum(is.na(data_merged$GDP_raw))
+sum(is.na(data_merged$LifeExp_raw))
+```
+```{r}
+data_merged %>%
+  filter(is.na(GDP_raw)) %>%
+  distinct(Country)
+
+data_merged %>%
+  filter(is.na(LifeExp_raw)) %>%
+  distinct(Country)
+```
+
+```{r}
+head(data_merged)
+```
+
+
+```{r}
+write_csv(data_merged, "happiness_final.csv")
+```
