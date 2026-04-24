@@ -19,6 +19,19 @@ The project employs several statistical machine learning and hypothesis testing 
   - Polynomial Regression applied to capture curvilinear effects and correct residual imbalances (U-shape fitted vs residual patterns).
   - Variance Inflation Factors (VIF) checked to ensure the absence of widespread multicollinearity.
 
+## Visualizations
+
+Here is a glimpse into the empirical data patterns evaluated during the analysis:
+
+**Normal Q-Q Plot: Happiness Scores by Health Sector**  
+![Normal Q-Q Plot: Happiness Scores by Health Sector](images/qq_plot.png)
+
+**Impact of Healthy Life Expectancy on Happiness**  
+![Boxplot: Happiness and Life Expectancy](images/boxplot.png)
+
+**Regression Analysis: GDP & Social Support vs Happiness**  
+![Regression Models: Economic and Social Variables](images/scatter_plots.png)
+
 ## Repository Structure
 ```
 |-- Data/
